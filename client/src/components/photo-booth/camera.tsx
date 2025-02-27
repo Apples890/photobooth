@@ -1,118 +1,98 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useCamera } from "@/hooks/use-camera";
 import { Button } from "@/components/ui/button";
 import { Camera as CameraIcon, RefreshCw } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lightbox } from "./lightbox";
-import { motion, AnimatePresence } from "framer-motion";
 
 interface CameraProps {
   filter: string;
   stickers: string[];
-  timeGap: number;
+  countdownSeconds?: number; // Countdown before each photo
 }
 
-export function Camera({ filter, stickers, timeGap }: CameraProps) {
+export function Camera({ filter, stickers, countdownSeconds = 3 }: CameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  const { startCamera, stopCamera, takePhoto, isLoading, error } = useCamera(videoRef, canvasRef);
+
   const [isCapturing, setIsCapturing] = useState(false);
   const [photoCount, setPhotoCount] = useState(0);
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
-
-  const { 
-    startCamera,
-    stopCamera,
-    takePhoto,
-    isLoading,
-    error 
-  } = useCamera(videoRef, canvasRef);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   useEffect(() => {
     startCamera();
     return () => stopCamera();
   }, []);
 
-  const captureWithEffect = async () => {
-    setShowFlash(true);
-    takePhoto();
-    await new Promise(resolve => setTimeout(resolve, 150));
-    setShowFlash(false);
-  };
-
-  const startPhotoSequence = async () => {
-    setIsLightboxOpen(true);
+  const capturePhotos = async () => {
     setIsCapturing(true);
     setPhotoCount(0);
 
     for (let i = 0; i < 4; i++) {
-      await new Promise(resolve => setTimeout(resolve, timeGap * 1000));
-      await captureWithEffect();
-      setPhotoCount(prev => prev + 1);
+      // Countdown before each photo
+      for (let j = countdownSeconds; j > 0; j--) {
+        setCountdown(j);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      setCountdown(null); // Hide countdown
+      setShowFlash(true);
+      takePhoto();
+      setPhotoCount(i + 1);
+
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Flash duration
+      setShowFlash(false);
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Short delay before next countdown
     }
 
     setIsCapturing(false);
-    setTimeout(() => setIsLightboxOpen(false), 1000);
   };
 
   if (error) {
     return (
       <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
-        <div className="text-center p-4 max-w-md">
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-          <p className="text-sm text-muted-foreground mb-4">
-            Please ensure you:
-            <br />1. Are using a secure (HTTPS) connection
-            <br />2. Have a working camera connected
-            <br />3. Have granted camera permissions
-          </p>
+        <div className="text-center p-4">
+          <p className="text-destructive mb-4">{error}</p>
           <Button onClick={startCamera}>
             <RefreshCw className="mr-2 h-4 w-4" />
-            Try Again
+            Retry Camera Access
           </Button>
         </div>
       </div>
     );
   }
 
-  const CameraContent = () => (
+  return (
     <div className="relative">
-      {isLoading && (
-        <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
-          <p>Initializing camera...</p>
-        </div>
-      )}
-
+      {/* Video Feed */}
       <video
         ref={videoRef}
-        className={`w-full aspect-video rounded-lg ${filter}`}
+        className={`w-full aspect-video rounded-lg ${filter} ${isLoading ? 'opacity-50' : ''}`}
         autoPlay
         playsInline
         muted
       />
 
-      <AnimatePresence>
-        {showFlash && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-white z-20"
-            transition={{ duration: 0.15 }}
-          />
-        )}
-      </AnimatePresence>
+      {/* Countdown Timer Before Each Photo */}
+      {countdown !== null && (
+        <div className="absolute inset-0 flex items-center justify-center text-white text-6xl font-bold bg-black/60">
+          {countdown}
+        </div>
+      )}
 
+      {/* Flash Effect */}
+      {showFlash && <div className="absolute inset-0 bg-white z-20 opacity-60" />}
+
+      {/* Stickers */}
       {stickers.map((sticker, index) => (
         <div
           key={index}
           className="absolute"
           style={{
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)'
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
           }}
         >
           <img src={sticker} alt="sticker" className="w-16 h-16" />
@@ -121,25 +101,13 @@ export function Camera({ filter, stickers, timeGap }: CameraProps) {
 
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Capture Button */}
       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
-        <Button 
-          size="lg"
-          onClick={startPhotoSequence}
-          disabled={isLoading || isCapturing}
-        >
+        <Button size="lg" onClick={capturePhotos} disabled={isLoading || isCapturing}>
           <CameraIcon className="mr-2 h-4 w-4" />
-          {isCapturing ? `Taking Photo ${photoCount + 1}/4...` : 'Take 4 Photos'}
+          {isCapturing ? `Capturing Photo ${photoCount}/4...` : `Start Countdown`}
         </Button>
       </div>
     </div>
-  );
-
-  return (
-    <>
-      {!isLightboxOpen && <CameraContent />}
-      <Lightbox isOpen={isLightboxOpen} onClose={() => setIsLightboxOpen(false)}>
-        <CameraContent />
-      </Lightbox>
-    </>
   );
 }
